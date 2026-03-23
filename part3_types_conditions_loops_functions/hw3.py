@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-from typing import Any
-
 UNKNOWN_COMMAND_MSG = "Unknown command!"
 NONPOSITIVE_VALUE_MSG = "Value must be grater than zero!"
 INCORRECT_DATE_MSG = "Invalid date!"
@@ -22,7 +20,8 @@ k100 = 100
 k400 = 400
 
 ParsedDate = tuple[int, int, int]
-TransactionRecord = dict[str, Any]
+TransactionValue = float | str | ParsedDate
+TransactionRecord = dict[str, TransactionValue]
 CategorySums = dict[str, float]
 CommandParts = list[str]
 
@@ -55,7 +54,7 @@ EXPENSE_CATEGORIES = {
 }
 
 
-financial_transactions_storage: list[dict[str, Any]] = []
+financial_transactions_storage: list[TransactionRecord] = []
 
 
 def is_divisible(value: int, divider: int) -> bool:
@@ -221,14 +220,11 @@ def get_record_amount(record: TransactionRecord) -> float | None:
 
 def get_record_date(record: TransactionRecord) -> ParsedDate | None:
     raw_date = record.get("date")
-    if not isinstance(raw_date, tuple) or len(raw_date) != k3:
+    if not isinstance(raw_date, tuple):
         return None
-    day = raw_date[0]
-    month = raw_date[k1]
-    year = raw_date[k2]
-    if not isinstance(day, int) or not isinstance(month, int) or not isinstance(year, int):
+    if not is_integer_date_tuple(raw_date):
         return None
-    return day, month, year
+    return raw_date[0], raw_date[k1], raw_date[k2]
 
 
 def get_record_category(record: TransactionRecord) -> str | None:
@@ -242,19 +238,49 @@ def is_cost_record(record: TransactionRecord) -> bool:
     return get_record_category(record) is not None
 
 
+def is_integer_date_tuple(raw_date: tuple[object, ...]) -> bool:
+    if len(raw_date) != k3:
+        return False
+    return all(isinstance(date_part, int) for date_part in raw_date)
+
+
+def get_record_amount_and_date(record: TransactionRecord) -> tuple[float, ParsedDate] | None:
+    amount = get_record_amount(record)
+    date_value = get_record_date(record)
+    if amount is None or date_value is None:
+        return None
+    return amount, date_value
+
+
+def update_period_totals(
+    totals: list[float],
+    amount: float,
+    date_value: ParsedDate,
+    stats_date: ParsedDate,
+) -> bool:
+    if not is_date_on_or_before(date_value, stats_date):
+        return False
+    totals[TOTAL_INDEX] += amount
+    if not is_same_month(date_value, stats_date):
+        return False
+    totals[MONTH_INDEX] += amount
+    return True
+
+
+def update_income_totals(totals: list[float], record: TransactionRecord, stats_date: ParsedDate) -> None:
+    if is_cost_record(record):
+        return
+    amount_and_date = get_record_amount_and_date(record)
+    if amount_and_date is None:
+        return
+    amount, date_value = amount_and_date
+    update_period_totals(totals, amount, date_value, stats_date)
+
+
 def calculate_income_totals(stats_date: ParsedDate) -> tuple[float, float]:
     totals = [float(0), float(0)]
     for record in financial_transactions_storage:
-        if is_cost_record(record):
-            continue
-        amount = get_record_amount(record)
-        date_value = get_record_date(record)
-        if amount is None or date_value is None:
-            continue
-        if is_date_on_or_before(date_value, stats_date):
-            totals[TOTAL_INDEX] += amount
-            if is_same_month(date_value, stats_date):
-                totals[MONTH_INDEX] += amount
+        update_income_totals(totals, record, stats_date)
     return totals[TOTAL_INDEX], totals[MONTH_INDEX]
 
 
@@ -263,20 +289,28 @@ def add_category_sum(category_sums: CategorySums, category_name: str, amount: fl
     category_sums[category_name] = current_sum + amount
 
 
+def update_cost_totals(
+    totals: list[float],
+    category_sums: CategorySums,
+    record: TransactionRecord,
+    stats_date: ParsedDate,
+) -> None:
+    category_name = get_record_category(record)
+    if category_name is None:
+        return
+    amount_and_date = get_record_amount_and_date(record)
+    if amount_and_date is None:
+        return
+    amount, date_value = amount_and_date
+    if update_period_totals(totals, amount, date_value, stats_date):
+        add_category_sum(category_sums, extract_target_category(category_name), amount)
+
+
 def calculate_cost_totals(stats_date: ParsedDate) -> tuple[float, float, CategorySums]:
     totals = [float(0), float(0)]
     category_sums: CategorySums = {}
     for record in financial_transactions_storage:
-        category_name = get_record_category(record)
-        amount = get_record_amount(record)
-        date_value = get_record_date(record)
-        if category_name is None or amount is None or date_value is None:
-            continue
-        if is_date_on_or_before(date_value, stats_date):
-            totals[TOTAL_INDEX] += amount
-            if is_same_month(date_value, stats_date):
-                totals[MONTH_INDEX] += amount
-                add_category_sum(category_sums, extract_target_category(category_name), amount)
+        update_cost_totals(totals, category_sums, record, stats_date)
     return totals[TOTAL_INDEX], totals[MONTH_INDEX], category_sums
 
 
@@ -290,7 +324,8 @@ def format_stats_date(stats_date: ParsedDate) -> str:
 def build_month_result(month_income: float, month_cost: float) -> str:
     month_delta = month_income - month_cost
     if month_delta < 0:
-        return f"This month, the loss amounted to {-month_delta:.2f} rubles."
+        loss_amount = abs(month_delta)
+        return f"This month, the loss amounted to {loss_amount:.2f} rubles."
     return f"This month, the profit amounted to {month_delta:.2f} rubles."
 
 
@@ -302,19 +337,27 @@ def build_category_lines(category_sums: CategorySums) -> list[str]:
     return lines
 
 
-def render_stats(report_date: ParsedDate) -> str:
-    income_total, month_income = calculate_income_totals(report_date)
-    total_cost, month_cost, category_sums = calculate_cost_totals(report_date)
-    total_capital = income_total - total_cost
+def build_stats_lines(
+    report_date: ParsedDate,
+    income_totals: tuple[float, float],
+    cost_totals: tuple[float, float, CategorySums],
+) -> list[str]:
+    total_capital = income_totals[0] - cost_totals[0]
     lines = [
         f"Your statistics as of {format_stats_date(report_date)}:",
         f"Total capital: {total_capital:.2f} rubles",
-        build_month_result(month_income, month_cost),
-        f"Income: {month_income:.2f} rubles",
-        f"Expenses: {month_cost:.2f} rubles",
+        build_month_result(income_totals[1], cost_totals[1]),
+        f"Income: {income_totals[1]:.2f} rubles",
+        f"Expenses: {cost_totals[1]:.2f} rubles",
     ]
-    lines.extend(build_category_lines(category_sums))
-    return "\n".join(lines)
+    lines.extend(build_category_lines(cost_totals[2]))
+    return lines
+
+
+def render_stats(report_date: ParsedDate) -> str:
+    income_totals = calculate_income_totals(report_date)
+    cost_totals = calculate_cost_totals(report_date)
+    return "\n".join(build_stats_lines(report_date, income_totals, cost_totals))
 
 
 def income_handler(amount: float, income_date: str) -> str:
@@ -350,7 +393,10 @@ def cost_handler(category_name: str, amount: float, income_date: str) -> str:
 
 
 def cost_categories_handler() -> str:
-    return "\n".join(f"{common}::{target}" for common, targets in EXPENSE_CATEGORIES.items() for target in targets)
+    categories: list[str] = []
+    for common_category, targets in EXPENSE_CATEGORIES.items():
+        categories.extend(f"{common_category}::{target_category}" for target_category in targets)
+    return "\n".join(categories)
 
 
 def stats_handler(report_date: str) -> str:
