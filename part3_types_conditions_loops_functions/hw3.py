@@ -8,6 +8,39 @@ INCORRECT_DATE_MSG = "Invalid date!"
 NOT_EXISTS_CATEGORY = "Category not exists!"
 OP_SUCCESS_MSG = "Added"
 
+TOTAL_INDEX = 0
+MONTH_INDEX = 1
+
+k1 = 1
+k2 = 2
+k3 = 3
+k4 = 4
+k10 = 10
+k12 = 12
+k29 = 29
+k100 = 100
+k400 = 400
+
+ParsedDate = tuple[int, int, int]
+TransactionRecord = dict[str, Any]
+CategorySums = dict[str, float]
+CommandParts = list[str]
+
+DAYS_IN_MONTH_TEMPLATE = (
+    31,
+    28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+)
+
 
 EXPENSE_CATEGORIES = {
     "Food": ("Supermarket", "Restaurants", "FastFood", "Coffee", "Delivery"),
@@ -25,6 +58,10 @@ EXPENSE_CATEGORIES = {
 financial_transactions_storage: list[dict[str, Any]] = []
 
 
+def is_divisible(value: int, divider: int) -> bool:
+    return value % divider == 0
+
+
 def is_leap_year(year: int) -> bool:
     """
     Для заданного года определяет: високосный (True) или невисокосный (False).
@@ -33,7 +70,50 @@ def is_leap_year(year: int) -> bool:
     :return: Значение високосности.
     :rtype: bool
     """
-    return bool(year)  # Change this
+    divisible_by_four = is_divisible(year, k4)
+    not_divisible_by_hundred = not is_divisible(year, k100)
+    divisible_by_four_hundred = is_divisible(year, k400)
+    return (divisible_by_four and not_divisible_by_hundred) or divisible_by_four_hundred
+
+
+def split_date_parts(maybe_dt: str) -> tuple[str, str, str] | None:
+    parts = maybe_dt.split("-")
+    if len(parts) != k3:
+        return None
+    return parts[0], parts[k1], parts[k2]
+
+
+def has_valid_date_lengths(parts: tuple[str, str, str]) -> bool:
+    day_length = len(parts[0]) == k2
+    month_length = len(parts[k1]) == k2
+    year_length = len(parts[k2]) == k4
+    return day_length and month_length and year_length
+
+
+def has_only_digits(parts: tuple[str, str, str]) -> bool:
+    return all(part.isdigit() for part in parts)
+
+
+def build_date(parts: tuple[str, str, str]) -> ParsedDate:
+    day = int(parts[0])
+    month = int(parts[k1])
+    year = int(parts[k2])
+    return day, month, year
+
+
+def get_days_in_month(year: int) -> list[int]:
+    days_in_month = list(DAYS_IN_MONTH_TEMPLATE)
+    if is_leap_year(year):
+        days_in_month[k1] = k29
+    return days_in_month
+
+
+def is_valid_date(date_value: ParsedDate) -> bool:
+    day, month, year = date_value
+    if month < k1 or month > k12:
+        return False
+    days_in_month = get_days_in_month(year)
+    return k1 <= day <= days_in_month[month - k1]
 
 
 def extract_date(maybe_dt: str) -> tuple[int, int, int] | None:
@@ -44,28 +124,299 @@ def extract_date(maybe_dt: str) -> tuple[int, int, int] | None:
     :return: typle формата (день, месяц, год) или None, если дата неправильная.
     :rtype: tuple[int, int, int] | None
     """
+    parsed_date = None
+    parts = split_date_parts(maybe_dt)
+    if parts is not None and has_valid_date_lengths(parts) and has_only_digits(parts):
+        candidate_date = build_date(parts)
+        if is_valid_date(candidate_date):
+            parsed_date = candidate_date
+    return parsed_date
+
+
+def has_valid_amount_separators(amount_string: str) -> bool:
+    dots_count = amount_string.count(".")
+    commas_count = amount_string.count(",")
+    separators_count = dots_count + commas_count
+    has_mixed_separators = dots_count > 0 and commas_count > 0
+    return separators_count <= k1 and not has_mixed_separators
+
+
+def normalize_amount_string(amount_string: str) -> str:
+    normalized_string = amount_string.replace(",", ".")
+    return normalized_string.removeprefix("+")
+
+
+def is_valid_amount_text(amount_text: str) -> bool:
+    if amount_text == "" or amount_text.endswith("."):
+        return False
+    digits_text = amount_text.replace(".", "")
+    return digits_text.isdigit()
+
+
+def extract_amount(amount_string: str) -> float | None:
+    if amount_string == "":
+        return None
+    if not has_valid_amount_separators(amount_string):
+        return None
+    normalized_string = normalize_amount_string(amount_string)
+    unsigned_string = normalized_string.removeprefix("-")
+    if not is_valid_amount_text(unsigned_string):
+        return None
+    return float(normalized_string)
+
+
+def split_category_name(category_name: str) -> tuple[str, str] | None:
+    parts = category_name.split("::")
+    if len(parts) != k2:
+        return None
+    return parts[0], parts[k1]
+
+
+def is_existing_category(category_name: str) -> bool:
+    parts = split_category_name(category_name)
+    if parts is None:
+        return False
+    common_category, target_category = parts
+    if common_category not in EXPENSE_CATEGORIES:
+        return False
+    return target_category in EXPENSE_CATEGORIES[common_category]
+
+
+def extract_target_category(category_name: str) -> str:
+    parts = split_category_name(category_name)
+    if parts is None:
+        return category_name
+    return parts[k1]
+
+
+def format_detail_amount(value: float) -> str:
+    result = f"{value:.10f}".rstrip("0").rstrip(".")
+    return result or "0"
+
+
+def to_sortable_date(date_value: ParsedDate) -> tuple[int, int, int]:
+    return date_value[k2], date_value[k1], date_value[0]
+
+
+def is_date_on_or_before(date_value: ParsedDate, target_date: ParsedDate) -> bool:
+    return to_sortable_date(date_value) <= to_sortable_date(target_date)
+
+
+def is_same_month(date_value: ParsedDate, target_date: ParsedDate) -> bool:
+    same_month = date_value[k1] == target_date[k1]
+    same_year = date_value[k2] == target_date[k2]
+    return same_month and same_year
+
+
+def append_invalid_record() -> None:
+    financial_transactions_storage.append({})
+
+
+def get_record_amount(record: TransactionRecord) -> float | None:
+    raw_amount = record.get("amount")
+    if isinstance(raw_amount, int | float):
+        return float(raw_amount)
+    return None
+
+
+def get_record_date(record: TransactionRecord) -> ParsedDate | None:
+    raw_date = record.get("date")
+    if not isinstance(raw_date, tuple) or len(raw_date) != k3:
+        return None
+    day = raw_date[0]
+    month = raw_date[k1]
+    year = raw_date[k2]
+    if not isinstance(day, int) or not isinstance(month, int) or not isinstance(year, int):
+        return None
+    return day, month, year
+
+
+def get_record_category(record: TransactionRecord) -> str | None:
+    raw_category = record.get("category")
+    if isinstance(raw_category, str):
+        return raw_category
+    return None
+
+
+def is_cost_record(record: TransactionRecord) -> bool:
+    return get_record_category(record) is not None
+
+
+def calculate_income_totals(stats_date: ParsedDate) -> tuple[float, float]:
+    totals = [float(0), float(0)]
+    for record in financial_transactions_storage:
+        if is_cost_record(record):
+            continue
+        amount = get_record_amount(record)
+        date_value = get_record_date(record)
+        if amount is None or date_value is None:
+            continue
+        if is_date_on_or_before(date_value, stats_date):
+            totals[TOTAL_INDEX] += amount
+            if is_same_month(date_value, stats_date):
+                totals[MONTH_INDEX] += amount
+    return totals[TOTAL_INDEX], totals[MONTH_INDEX]
+
+
+def add_category_sum(category_sums: CategorySums, category_name: str, amount: float) -> None:
+    current_sum = category_sums.get(category_name, float(0))
+    category_sums[category_name] = current_sum + amount
+
+
+def calculate_cost_totals(stats_date: ParsedDate) -> tuple[float, float, CategorySums]:
+    totals = [float(0), float(0)]
+    category_sums: CategorySums = {}
+    for record in financial_transactions_storage:
+        category_name = get_record_category(record)
+        amount = get_record_amount(record)
+        date_value = get_record_date(record)
+        if category_name is None or amount is None or date_value is None:
+            continue
+        if is_date_on_or_before(date_value, stats_date):
+            totals[TOTAL_INDEX] += amount
+            if is_same_month(date_value, stats_date):
+                totals[MONTH_INDEX] += amount
+                add_category_sum(category_sums, extract_target_category(category_name), amount)
+    return totals[TOTAL_INDEX], totals[MONTH_INDEX], category_sums
+
+
+def format_stats_date(stats_date: ParsedDate) -> str:
+    day = stats_date[0]
+    month = stats_date[k1]
+    year = stats_date[k2]
+    return f"{day:02d}-{month:02d}-{year:04d}"
+
+
+def build_month_result(month_income: float, month_cost: float) -> str:
+    month_delta = month_income - month_cost
+    if month_delta < 0:
+        return f"This month, the loss amounted to {-month_delta:.2f} rubles."
+    return f"This month, the profit amounted to {month_delta:.2f} rubles."
+
+
+def build_category_lines(category_sums: CategorySums) -> list[str]:
+    lines = ["", "Details (category: amount):"]
+    sorted_categories = sorted(category_sums)
+    for index, category_name in enumerate(sorted_categories, start=k1):
+        lines.append(f"{index}. {category_name}: {format_detail_amount(category_sums[category_name])}")
+    return lines
+
+
+def render_stats(report_date: ParsedDate) -> str:
+    income_total, month_income = calculate_income_totals(report_date)
+    total_cost, month_cost, category_sums = calculate_cost_totals(report_date)
+    total_capital = income_total - total_cost
+    lines = [
+        f"Your statistics as of {format_stats_date(report_date)}:",
+        f"Total capital: {total_capital:.2f} rubles",
+        build_month_result(month_income, month_cost),
+        f"Income: {month_income:.2f} rubles",
+        f"Expenses: {month_cost:.2f} rubles",
+    ]
+    lines.extend(build_category_lines(category_sums))
+    return "\n".join(lines)
 
 
 def income_handler(amount: float, income_date: str) -> str:
-    financial_transactions_storage.append({"amount": amount, "date": income_date})
+    if amount <= 0:
+        append_invalid_record()
+        return NONPOSITIVE_VALUE_MSG
+
+    parsed_date = extract_date(income_date)
+    if parsed_date is None:
+        append_invalid_record()
+        return INCORRECT_DATE_MSG
+
+    financial_transactions_storage.append({"amount": amount, "date": parsed_date})
     return OP_SUCCESS_MSG
 
 
 def cost_handler(category_name: str, amount: float, income_date: str) -> str:
-    financial_transactions_storage.append({"category": category_name, "amount": amount, "date": income_date})
+    if not is_existing_category(category_name):
+        append_invalid_record()
+        return NOT_EXISTS_CATEGORY
+
+    if amount <= 0:
+        append_invalid_record()
+        return NONPOSITIVE_VALUE_MSG
+
+    parsed_date = extract_date(income_date)
+    if parsed_date is None:
+        append_invalid_record()
+        return INCORRECT_DATE_MSG
+
+    financial_transactions_storage.append({"category": category_name, "amount": amount, "date": parsed_date})
     return OP_SUCCESS_MSG
 
 
 def cost_categories_handler() -> str:
-    return "\n".join({})
+    return "\n".join(f"{common}::{target}" for common, targets in EXPENSE_CATEGORIES.items() for target in targets)
 
 
 def stats_handler(report_date: str) -> str:
-    return f"Statistic for {report_date}"
+    parsed_date = extract_date(report_date)
+    if parsed_date is None:
+        return INCORRECT_DATE_MSG
+    return render_stats(parsed_date)
+
+
+def process_income_command(parts: CommandParts) -> str:
+    if len(parts) != k3:
+        return UNKNOWN_COMMAND_MSG
+    amount = extract_amount(parts[k1])
+    if amount is None or amount <= 0:
+        return NONPOSITIVE_VALUE_MSG
+    return income_handler(amount, parts[k2])
+
+
+def process_cost_command(parts: CommandParts) -> str:
+    if len(parts) == k2 and parts[k1] == "categories":
+        return cost_categories_handler()
+    if len(parts) < k4:
+        return UNKNOWN_COMMAND_MSG
+
+    category_name = " ".join(parts[k1:-k2]).strip()
+    amount = extract_amount(parts[-k2])
+    current_date = parts[-k1]
+
+    if category_name == "":
+        return UNKNOWN_COMMAND_MSG
+    if amount is None or amount <= 0:
+        return NONPOSITIVE_VALUE_MSG
+    return cost_handler(category_name, amount, current_date)
+
+
+def process_stats_command(parts: CommandParts) -> str:
+    if len(parts) != k2:
+        return UNKNOWN_COMMAND_MSG
+    return stats_handler(parts[k1])
+
+
+def process_line(raw_line: str) -> str:
+    line = raw_line.strip()
+    if line == "":
+        return UNKNOWN_COMMAND_MSG
+
+    parts = line.split()
+    command = parts[0]
+
+    if command == "income":
+        return process_income_command(parts)
+    if command == "cost":
+        return process_cost_command(parts)
+    if command == "stats":
+        return process_stats_command(parts)
+    return UNKNOWN_COMMAND_MSG
+
+
+def run_process() -> None:
+    with open(0) as input_stream:
+        for raw_line in input_stream:
+            print(process_line(raw_line))
 
 
 def main() -> None:
-    """Ваш код здесь"""
+    run_process()
 
 
 if __name__ == "__main__":
