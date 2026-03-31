@@ -16,6 +16,17 @@ CategorySums = dict[str, float]
 CommandParts = list[str]
 
 ZERO_AMOUNT = float(0)
+DATE_PARTS_COUNT = 3
+DATE_DAY_TEXT_LENGTH = 2
+DATE_MONTH_TEXT_LENGTH = 2
+DATE_YEAR_TEXT_LENGTH = 4
+MIN_MONTH_NUMBER = 1
+MAX_MONTH_NUMBER = 12
+CATEGORY_PARTS_COUNT = 2
+INCOME_COMMAND_PARTS_COUNT = 3
+COST_CATEGORIES_COMMAND_PARTS_COUNT = 2
+COST_COMMAND_MIN_PARTS_COUNT = 4
+STATS_COMMAND_PARTS_COUNT = 2
 
 DAYS_IN_MONTH_TEMPLATE = (
     31,
@@ -62,15 +73,15 @@ def is_leap_year(year: int) -> bool:
 
 def split_date_parts(maybe_dt: str) -> tuple[str, str, str] | None:
     parts = maybe_dt.split("-")
-    if len(parts) != 3:
+    if len(parts) != DATE_PARTS_COUNT:
         return None
     return parts[0], parts[1], parts[2]
 
 
 def has_valid_date_lengths(parts: tuple[str, str, str]) -> bool:
-    day_length = len(parts[0]) == 2
-    month_length = len(parts[1]) == 2
-    year_length = len(parts[2]) == 4
+    day_length = len(parts[0]) == DATE_DAY_TEXT_LENGTH
+    month_length = len(parts[1]) == DATE_MONTH_TEXT_LENGTH
+    year_length = len(parts[2]) == DATE_YEAR_TEXT_LENGTH
     return day_length and month_length and year_length
 
 
@@ -94,7 +105,7 @@ def get_days_in_month(year: int) -> list[int]:
 
 def is_valid_date(date_value: ParsedDate) -> bool:
     day, month, year = date_value
-    if month < 1 or month > 12:
+    if month < MIN_MONTH_NUMBER or month > MAX_MONTH_NUMBER:
         return False
     days_in_month = get_days_in_month(year)
     return 1 <= day <= days_in_month[month - 1]
@@ -150,7 +161,7 @@ def extract_amount(amount_string: str) -> float | None:
 
 def split_category_name(category_name: str) -> tuple[str, str] | None:
     parts = category_name.split("::")
-    if len(parts) != 2:
+    if len(parts) != CATEGORY_PARTS_COUNT:
         return None
     return parts[0], parts[1]
 
@@ -218,7 +229,7 @@ def is_cost_record(record: TransactionRecord) -> bool:
 
 
 def is_integer_date_tuple(raw_date: tuple[object, ...]) -> bool:
-    if len(raw_date) != 3:
+    if len(raw_date) != DATE_PARTS_COUNT:
         return False
     return all(isinstance(date_part, int) for date_part in raw_date)
 
@@ -388,7 +399,7 @@ def stats_handler(report_date: str) -> str:
 
 
 def process_income_command(parts: CommandParts) -> str:
-    if len(parts) != 3:
+    if len(parts) != INCOME_COMMAND_PARTS_COUNT:
         return UNKNOWN_COMMAND_MSG
     amount = extract_amount(parts[1])
     if amount is None or amount <= 0:
@@ -397,9 +408,9 @@ def process_income_command(parts: CommandParts) -> str:
 
 
 def process_cost_command(parts: CommandParts) -> str:
-    if len(parts) == 2 and parts[1] == "categories":
+    if len(parts) == COST_CATEGORIES_COMMAND_PARTS_COUNT and parts[1] == "categories":
         return cost_categories_handler()
-    if len(parts) < 4:
+    if len(parts) < COST_COMMAND_MIN_PARTS_COUNT:
         return UNKNOWN_COMMAND_MSG
 
     category_name = " ".join(parts[1:-2]).strip()
@@ -414,7 +425,7 @@ def process_cost_command(parts: CommandParts) -> str:
 
 
 def process_stats_command(parts: CommandParts) -> str:
-    if len(parts) != 2:
+    if len(parts) != STATS_COMMAND_PARTS_COUNT:
         return UNKNOWN_COMMAND_MSG
     return stats_handler(parts[1])
 
