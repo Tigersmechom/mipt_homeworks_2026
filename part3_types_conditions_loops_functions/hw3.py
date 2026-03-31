@@ -201,6 +201,7 @@ def is_same_month(date_value: ParsedDate, target_date: ParsedDate) -> bool:
     same_year = date_value[2] == target_date[2]
     return same_month and same_year
 
+
 def get_record_amount(record: TransactionRecord) -> float | None:
     raw_amount = record.get("amount")
     if isinstance(raw_amount, int | float):
