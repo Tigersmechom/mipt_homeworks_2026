@@ -11,7 +11,7 @@ VALIDATIONS_FAILED = "Invalid decorator args."
 TOO_MUCH = "Too much requests, just wait."
 
 P = ParamSpec("P")
-T = TypeVar("T")
+R_co = TypeVar("R_co", covariant=True)
 
 
 def _validate_positive_integer(value: object, error_message: str) -> ValueError | None:
@@ -21,14 +21,11 @@ def _validate_positive_integer(value: object, error_message: str) -> ValueError 
 
 
 def _validate_decorator_args(critical_count: object, time_to_recover: object) -> None:
-    errors = [
-        error
-        for error in (
-            _validate_positive_integer(critical_count, INVALID_CRITICAL_COUNT),
-            _validate_positive_integer(time_to_recover, INVALID_RECOVERY_TIME),
-        )
-        if error is not None
-    ]
+    errors = []
+    if not isinstance(critical_count, int) or isinstance(critical_count, bool) or critical_count <= 0:
+        errors.append(ValueError(INVALID_CRITICAL_COUNT))
+    if not isinstance(time_to_recover, int) or isinstance(time_to_recover, bool) or time_to_recover <= 0:
+        errors.append(ValueError(INVALID_RECOVERY_TIME))
     if errors:
         raise ExceptionGroup(VALIDATIONS_FAILED, errors)
 
@@ -56,11 +53,11 @@ class CircuitBreaker:
         self._blocked_until: datetime | None = None
         self._block_time: datetime | None = None
 
-    def __call__(self, func: Callable[P, T]) -> Callable[P, T]:
+    def __call__(self, func: Callable[P, R_co]) -> Callable[P, R_co]:
         func_name = f"{func.__module__}.{func.__name__}"
 
         @wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R_co:
             if self._is_blocked():
                 raise BreakerError(func_name, cast("datetime", self._block_time))
 
@@ -100,3 +97,7 @@ class CircuitBreaker:
 def get_comments(post_id: int) -> Any:
     response = urlopen(f"https://jsonplaceholder.typicode.com/comments?postId={post_id}")
     return json.loads(response.read())
+
+
+if __name__ == "__main__":
+    comments = get_comments(1)
