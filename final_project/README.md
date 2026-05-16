@@ -1,12 +1,82 @@
-# Итоговый проект "GigaVibeMiptCode"
+# GigaVibeMiptCode
 
-Актуальный текст задания доступен [здесь](https://docs.google.com/document/d/1hjEwsQd8m6-esJA37ZkGNIwK9Rn2edBC0MozFxpqxRg/edit?usp=sharing).
+Консольный чат-бот для OpenAI-compatible LLM API. Подходит для Ollama, LM Studio, OpenRouter и похожих провайдеров.
 
-**Дедлайн загрузки решений: 23:59 22 мая.**
+## Установка
 
-В рамках проекта вам предстоит создать собственного ИИ-ассистента с консольным интерфейсом, который будет обрабатывать пользовательский ввод, отправлять запросы к LLM и выводить пользователю ответы в разных режимах.
+```bash
+cd final_project
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-Решения необходимо подгрузить в форки данного репозитория.
+## Настройка
 
-Требования к линтерам смягчены: используйте ruff check с конфигурацией из нового ruff.toml
-Проверку типов выполняем через простой запуск mypy.
+Можно использовать переменные окружения:
+
+```bash
+export API_KEY=your_key_here
+export API_HOST=http://localhost:11434/v1/
+export MODEL=gemma3:270m
+export LIMIT_CHARS=2000
+export LIMIT_MESSAGE=20
+export TEMPERATURE=0.7
+export STREAM=true
+python final_project/main.py
+```
+
+Или создать `config.yaml` по примеру:
+
+```yaml
+api_key: your_key_here
+api_host: http://localhost:11434/v1/
+model: gemma3:270m
+limit_message: 20
+limit_chars: 2000
+temperature: 0.7
+stream: true
+system_prompt: You are a helpful Python assistant.
+```
+
+Переменные окружения имеют приоритет над `config.yaml`. Файл `config.yaml` может содержать секреты, поэтому его не стоит коммитить.
+
+## Запуск
+
+```bash
+cd final_project
+python main.py
+```
+
+Команды:
+
+- `\q` - выход из основного чата или режима обработки файла.
+- `/reset` - очистить историю сообщений и экран.
+- `/filechunk`, `/file_chunk` - обработать файл по частям.
+
+Примеры режима чанков:
+
+```text
+/filechunk
+/filechunk paragraph=3
+/filechunk len=150
+/filechunk paragraph=3 -y
+```
+
+Файлы можно прикреплять к сообщению так:
+
+```text
+В чем ошибка? @::/path/to/main.py::
+```
+
+## Проверки
+
+```bash
+ruff check --config final_project/ruff.toml final_project
+mypy final_project
+pytest -q final_project/tests
+coverage run --source=final_project/gigavibe -m pytest -q final_project/tests
+coverage html -d final_project/htmlcov
+```
+
+HTML-отчет покрытия создается в `final_project/htmlcov/index.html`.

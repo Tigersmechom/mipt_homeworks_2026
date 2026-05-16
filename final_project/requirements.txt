@@ -1,0 +1,5 @@
+PyYAML>=6.0
+pytest>=8.0
+coverage>=7.0
+mypy>=1.8
+ruff>=0.6

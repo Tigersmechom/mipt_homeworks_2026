@@ -1,0 +1,8 @@
+api_key: your_key_here
+api_host: http://localhost:11434/v1/
+model: gemma3:270m
+limit_message: 20
+limit_chars: 2000
+temperature: 0.7
+stream: true
+system_prompt: You are a helpful Python assistant.
