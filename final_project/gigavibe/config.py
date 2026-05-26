@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 DEFAULT_MODEL = 'gemma3:270m'
 ENV_KEYS = {
@@ -71,7 +71,10 @@ def load_config(
 def _load_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
-    data = yaml.safe_load(path.read_text(encoding='utf-8'))
+    try:
+        data = yaml.safe_load(path.read_text(encoding='utf-8'))
+    except yaml.YAMLError as exc:
+        raise ConfigError('config.yaml содержит некорректный YAML.') from exc
     if data is None:
         return {}
     if not isinstance(data, dict):

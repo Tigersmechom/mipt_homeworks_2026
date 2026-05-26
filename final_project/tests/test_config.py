@@ -42,6 +42,22 @@ def test_missing_config_raises(tmp_path: Path) -> None:
         load_config(tmp_path / 'missing.yaml', {})
 
 
+def test_invalid_yaml_raises_config_error(tmp_path: Path) -> None:
+    path = tmp_path / 'config.yaml'
+    path.write_text('api_key: [broken\n', encoding='utf-8')
+
+    with pytest.raises(ConfigError, match='некорректный YAML'):
+        load_config(path, {})
+
+
+def test_non_mapping_yaml_raises_config_error(tmp_path: Path) -> None:
+    path = tmp_path / 'config.yaml'
+    path.write_text('- api_key\n- api_host\n', encoding='utf-8')
+
+    with pytest.raises(ConfigError, match='YAML-словарем'):
+        load_config(path, {})
+
+
 def test_invalid_temperature_raises(tmp_path: Path) -> None:
     path = tmp_path / 'config.yaml'
     path.write_text(
