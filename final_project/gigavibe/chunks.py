@@ -68,12 +68,12 @@ def _split_by_length(text: str, size: int) -> list[str]:
     chunks: list[str] = []
     for start in range(0, len(text), size):
         if text[start]:
-            chunks.append(text[start:start + size])
+            chunks.append(text[start : start + size])
     return chunks
 
 
 def _split_paragraphs(paragraphs: list[str], size: int) -> list[str]:
     chunks: list[str] = []
     for start in range(0, len(paragraphs), size):
-        chunks.append('\n'.join(paragraphs[start:start + size]))
+        chunks.append('\n'.join(paragraphs[start : start + size]))
     return chunks
