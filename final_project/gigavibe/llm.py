@@ -1,11 +1,30 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .config import AppConfig
+from gigavibe.config import AppConfig
+
+API_PATH = 'chat/completions'
+AUTHORIZATION_HEADER = 'Authorization'
+BEARER_PREFIX = 'Bearer'
+CHOICES_KEY = 'choices'
+CONTENT_KEY = 'content'
+CONTENT_TYPE_HEADER = 'Content-Type'
+DATA_PREFIX = 'data:'
+DELTA_KEY = 'delta'
+DONE_MARKER = '[DONE]'
+JSON_CONTENT_TYPE = 'application/json'
+MESSAGE_KEY = 'message'
+MESSAGES_KEY = 'messages'
+MODEL_KEY = 'model'
+POST_METHOD = 'POST'
+STREAM_KEY = 'stream'
+TEMPERATURE_KEY = 'temperature'
+UTF8_ENCODING = 'utf-8'
 
 
 class LLMError(RuntimeError):
@@ -19,60 +38,91 @@ class LLMClient:
 
     def complete(self, messages: Sequence[dict[str, str]]) -> str:
         try:
-            with urlopen(self._request(messages, stream=False), timeout=self.timeout) as response:
-                data = json.loads(response.read().decode('utf-8'))
+            data = self._request_json(messages)
         except (HTTPError, URLError, json.JSONDecodeError) as exc:
             raise LLMError(f'Ошибка запроса к модели: {exc}') from exc
 
         try:
-            return str(data['choices'][0]['message']['content'])
+            return str(data[CHOICES_KEY][0][MESSAGE_KEY][CONTENT_KEY])
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMError('Сервер модели вернул неожиданный ответ.') from exc
 
     def stream_response(self, messages: Sequence[dict[str, str]]) -> Iterator[str]:
         try:
-            with urlopen(self._request(messages, stream=True), timeout=self.timeout) as response:
-                for raw_line in response:
-                    piece = extract_stream_piece(raw_line.decode('utf-8'))
-                    if piece is not None:
-                        yield piece
+            yield from self._stream_response(messages)
         except (HTTPError, URLError, json.JSONDecodeError) as exc:
             raise LLMError(f'Ошибка streaming-запроса к модели: {exc}') from exc
 
+    def _request_json(self, messages: Sequence[dict[str, str]]) -> Any:
+        with urlopen(self._request(messages, stream=False), timeout=self.timeout) as response:
+            return json.loads(response.read().decode(UTF8_ENCODING))
+
+    def _stream_response(self, messages: Sequence[dict[str, str]]) -> Iterator[str]:
+        with urlopen(self._request(messages, stream=True), timeout=self.timeout) as response:
+            yield from _extract_stream_pieces(response)
+
     def _request(self, messages: Sequence[dict[str, str]], stream: bool) -> Request:
         payload = {
-            'model': self.config.model,
-            'messages': list(messages),
-            'temperature': self.config.temperature,
-            'stream': stream,
+            MODEL_KEY: self.config.model,
+            MESSAGES_KEY: list(messages),
+            TEMPERATURE_KEY: self.config.temperature,
+            STREAM_KEY: stream,
         }
-        body = json.dumps(payload).encode('utf-8')
+        body = json.dumps(payload).encode(UTF8_ENCODING)
         return Request(
-            f'{self.config.api_host}/chat/completions',
+            _endpoint(self.config),
             data=body,
-            headers={
-                'Authorization': f'Bearer {self.config.api_key}',
-                'Content-Type': 'application/json',
-            },
-            method='POST',
+            headers=_headers(self.config),
+            method=POST_METHOD,
         )
+
+
+def _endpoint(config: AppConfig) -> str:
+    return '/'.join((config.api_host, API_PATH))
+
+
+def _headers(config: AppConfig) -> dict[str, str]:
+    return {
+        AUTHORIZATION_HEADER: '{0} {1}'.format(BEARER_PREFIX, config.api_key),
+        CONTENT_TYPE_HEADER: JSON_CONTENT_TYPE,
+    }
+
+
+def _extract_stream_pieces(lines: Iterable[bytes]) -> Iterator[str]:
+    for raw_line in lines:
+        piece = extract_stream_piece(raw_line.decode(UTF8_ENCODING))
+        if piece is not None:
+            yield piece
 
 
 def extract_stream_piece(line: str) -> str | None:
     line = line.strip()
     if not line:
         return None
-    if line.startswith('data:'):
-        line = line.removeprefix('data:').strip()
-    if line == '[DONE]':
+    if line.startswith(DATA_PREFIX):
+        line = line.removeprefix(DATA_PREFIX).strip()
+    if line == DONE_MARKER:
         return None
 
     data = json.loads(line)
-    choice = data['choices'][0]
-    delta = choice.get('delta', {})
-    if 'content' in delta:
-        return str(delta['content'])
-    message = choice.get('message', {})
-    if 'content' in message:
-        return str(message['content'])
-    return None
+    choice = data[CHOICES_KEY][0]
+    return _content_from_choice(choice)
+
+
+def _content_from_choice(choice: dict[str, object]) -> str | None:
+    delta = choice.get(DELTA_KEY, {})
+    content = _mapping_content(delta)
+    if content is not None:
+        return content
+
+    message = choice.get(MESSAGE_KEY, {})
+    return _mapping_content(message)
+
+
+def _mapping_content(raw: object) -> str | None:
+    if not isinstance(raw, dict):
+        return None
+    content = raw.get(CONTENT_KEY)
+    if content is None:
+        return None
+    return str(content)

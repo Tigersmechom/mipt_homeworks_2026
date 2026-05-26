@@ -9,16 +9,35 @@ from typing import Any
 import yaml
 
 DEFAULT_MODEL = 'gemma3:270m'
-ENV_KEYS = {
-    'API_KEY': 'api_key',
-    'API_HOST': 'api_host',
-    'MODEL': 'model',
-    'LIMIT_MESSAGE': 'limit_message',
-    'LIMIT_MESSAGES': 'limit_message',
-    'LIMIT_CHARS': 'limit_chars',
-    'TEMPERATURE': 'temperature',
-    'STREAM': 'stream',
-}
+DEFAULT_CONFIG_PATH = Path('config.yaml')
+API_KEY_ENV = 'API_KEY'
+API_HOST_ENV = 'API_HOST'
+MODEL_ENV = 'MODEL'
+LIMIT_MESSAGE_ENV = 'LIMIT_MESSAGE'
+LIMIT_MESSAGES_ENV = 'LIMIT_MESSAGES'
+LIMIT_CHARS_ENV = 'LIMIT_CHARS'
+TEMPERATURE_ENV = 'TEMPERATURE'
+STREAM_ENV = 'STREAM'
+
+API_KEY_KEY = 'api_key'
+API_HOST_KEY = 'api_host'
+MODEL_KEY = 'model'
+LIMIT_MESSAGE_KEY = 'limit_message'
+LIMIT_CHARS_KEY = 'limit_chars'
+TEMPERATURE_KEY = 'temperature'
+SYSTEM_PROMPT_KEY = 'system_prompt'
+STREAM_KEY = 'stream'
+TRUE_VALUES = frozenset(('1', 'true', 'yes', 'y', 'on'))
+ENV_KEYS = (
+    (API_KEY_ENV, API_KEY_KEY),
+    (API_HOST_ENV, API_HOST_KEY),
+    (MODEL_ENV, MODEL_KEY),
+    (LIMIT_MESSAGE_ENV, LIMIT_MESSAGE_KEY),
+    (LIMIT_MESSAGES_ENV, LIMIT_MESSAGE_KEY),
+    (LIMIT_CHARS_ENV, LIMIT_CHARS_KEY),
+    (TEMPERATURE_ENV, TEMPERATURE_KEY),
+    (STREAM_ENV, STREAM_KEY),
+)
 
 
 class ConfigError(ValueError):
@@ -38,34 +57,41 @@ class AppConfig:
 
 
 def load_config(
-    path: Path = Path('config.yaml'),
+    path: Path = DEFAULT_CONFIG_PATH,
     env: Mapping[str, str] | None = None,
 ) -> AppConfig:
     env = os.environ if env is None else env
     raw = _load_yaml(path)
 
     has_config = path.exists() and bool(raw)
-    has_env = any(key in env for key in ENV_KEYS)
-    if not has_config and not has_env:
+    if not has_config and not _has_env_config(env):
         raise ConfigError('Нет config.yaml и нужных переменных окружения.')
 
-    for env_key, config_key in ENV_KEYS.items():
-        if env_key in env:
-            raw[config_key] = env[env_key]
+    for env_key, config_key in ENV_KEYS:
+        env_value = env.get(env_key)
+        if env_value is not None:
+            raw[config_key] = env_value
 
-    api_key = _required_str(raw, 'api_key')
-    api_host = _required_str(raw, 'api_host')
+    api_key = _required_str(raw, API_KEY_KEY)
+    api_host = _required_str(raw, API_HOST_KEY)
 
     return AppConfig(
         api_key=api_key,
         api_host=api_host.rstrip('/'),
-        model=str(raw.get('model') or DEFAULT_MODEL),
-        limit_message=_optional_int(raw.get('limit_message'), 'limit_message'),
-        limit_chars=_optional_int(raw.get('limit_chars'), 'limit_chars'),
-        temperature=_temperature(raw.get('temperature', 0.7)),
-        system_prompt=_optional_str(raw.get('system_prompt')),
-        stream=_bool(raw.get('stream', False)),
+        model=str(raw.get(MODEL_KEY) or DEFAULT_MODEL),
+        limit_message=_optional_int(raw.get(LIMIT_MESSAGE_KEY), LIMIT_MESSAGE_KEY),
+        limit_chars=_optional_int(raw.get(LIMIT_CHARS_KEY), LIMIT_CHARS_KEY),
+        temperature=_temperature(raw.get(TEMPERATURE_KEY, 0.7)),
+        system_prompt=_optional_str(raw.get(SYSTEM_PROMPT_KEY)),
+        stream=_bool(raw.get(STREAM_KEY, False)),
     )
+
+
+def _has_env_config(env: Mapping[str, str]) -> bool:
+    for env_key, _ in ENV_KEYS:
+        if env.get(env_key) is not None:
+            return True
+    return False
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -120,4 +146,5 @@ def _temperature(value: Any) -> float:
 def _bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
-    return str(value).strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+    normalized = str(value).strip().lower()
+    return normalized in TRUE_VALUES

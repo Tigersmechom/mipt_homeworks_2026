@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 Role = Literal['user', 'assistant', 'system']
+USER_ROLE: Literal['user'] = 'user'
+ASSISTANT_ROLE: Literal['assistant'] = 'assistant'
+SYSTEM_ROLE: Literal['system'] = 'system'
 
 
 @dataclass
@@ -32,13 +35,13 @@ class ChatHistory:
     def to_api_messages(self, system_prompt: str | None = None) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
         if system_prompt:
-            messages.append(Message(role='system', content=system_prompt).as_api())
+            messages.append(Message(role=SYSTEM_ROLE, content=system_prompt).as_api())
         messages.extend(message.as_api() for message in self.messages)
         return messages
 
     def _trim_content(self, content: str) -> str:
         if self.limit_chars is not None and len(content) > self.limit_chars:
-            return content[-self.limit_chars :]
+            return _last_chars(content, self.limit_chars)
         return content
 
     def _trim_history(self) -> None:
@@ -52,7 +55,12 @@ class ChatHistory:
             self.messages.pop(0)
 
         if self.messages and self._chars_count() > self.limit_chars:
-            self.messages[0].content = self.messages[0].content[-self.limit_chars :]
+            first_message = self.messages[0]
+            first_message.content = _last_chars(first_message.content, self.limit_chars)
 
     def _chars_count(self) -> int:
         return sum(len(message.content) for message in self.messages)
+
+
+def _last_chars(content: str, limit_chars: int) -> str:
+    return content[-limit_chars:]
